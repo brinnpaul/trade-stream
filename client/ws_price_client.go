@@ -37,7 +37,7 @@ func (f *BinanceTradeStreamFactory) GetNewStream(symbols []string, handler Multi
 		}
 		handler(event)
 	}
-	return streamClient.Subscribe(wsHandler, errHandler)
+	return streamClient.Connect(wsHandler, errHandler)
 }
 
 func formatSymbolsUrlSlug(symbols []string) string {

@@ -10,9 +10,10 @@ import (
 )
 
 const (
-	Name      = "brinn-connector-go"
-	Version   = "0.0.0"
-	Keepalive = true
+	Name           = "brinn-connector-go"
+	Version        = "0.0.0"
+	Keepalive      = true
+	ReadLimitBytes = 655350
 )
 
 var (
@@ -21,10 +22,13 @@ var (
 
 // WsConfig webservice configuration
 type WsConfig struct {
-	endpoint            string
-	handshakeTimeout    time.Duration
-	enableCompression   bool
-	keepConnectionAlive bool
+	endpoint             string
+	handshakeTimeout     time.Duration
+	enableCompression    bool
+	keepConnectionAlive  bool
+	maxReconnectAttempts int
+	reconnectDelay       time.Duration
+	reconnectBackoff     time.Duration
 }
 
 type WebsocketStreamClient struct {
@@ -33,88 +37,111 @@ type WebsocketStreamClient struct {
 }
 
 type StreamClient interface {
-	Subscribe(messageHandler MessageHandler, errorHandler ErrorHandler) (doneCh, stopCh chan struct{}, err error)
+	Connect(messageHandler MessageHandler, errorHandler ErrorHandler) (doneCh, stopCh chan struct{}, err error)
 }
 
 func NewWebsocketStreamClient(baseURL string, logger *slog.Logger) StreamClient {
 	return &WebsocketStreamClient{
 		config: &WsConfig{
-			endpoint:            baseURL,
-			handshakeTimeout:    Timeout,
-			enableCompression:   false,
-			keepConnectionAlive: Keepalive,
+			endpoint:             baseURL,
+			handshakeTimeout:     Timeout,
+			enableCompression:    false,
+			keepConnectionAlive:  Keepalive,
+			maxReconnectAttempts: 5,
+			reconnectDelay:       2 * time.Second,
+			reconnectBackoff:     5 * time.Second,
 		},
 		logger: logger,
 	}
 }
 
-func (ws *WebsocketStreamClient) Subscribe(messageHandler MessageHandler, errorHandler ErrorHandler) (doneCh, stopCh chan struct{}, err error) {
+func (ws *WebsocketStreamClient) Connect(messageHandler MessageHandler, errorHandler ErrorHandler) (doneCh, stopCh chan struct{}, err error) {
+	doneCh = make(chan struct{})
+	stopCh = make(chan struct{})
+
+	go ws.manageConnection(messageHandler, errorHandler, doneCh, stopCh)
+
+	return doneCh, stopCh, nil
+}
+
+func (ws *WebsocketStreamClient) manageConnection(messageHandler MessageHandler, errorHandler ErrorHandler, doneCh, stopCh chan struct{}) {
+	defer close(doneCh)
+
+	reconnectionAttempts := 0
+	reconnectDelay := ws.config.reconnectDelay
+
+	for {
+		// check if we stop
+		select {
+		case <-stopCh:
+			return
+		default:
+		}
+
+		conn, err := ws.connect()
+		if err != nil {
+			ws.logger.Error("Websocket connection failed", "error", err, "attempt", reconnectionAttempts+1)
+			reconnectionAttempts++
+
+			if reconnectionAttempts >= ws.config.maxReconnectAttempts {
+				ws.logger.Error("Reached max reconnection attempts", "error", err, "attempt", reconnectionAttempts+1)
+				errorHandler(fmt.Errorf("reached max reconnection attempts"))
+				return
+			}
+
+			select {
+			case <-stopCh:
+				return
+			case <-time.After(reconnectDelay):
+				reconnectDelay = time.Duration(float64(reconnectDelay) * 1.5)
+				continue
+			}
+		}
+
+		// reached successful connection
+		ws.logger.Info("WebSocket connected successfully", "endpoint", ws.config.endpoint)
+
+		reconnectionAttempts = 0
+		reconnectDelay = ws.config.reconnectDelay
+
+		processingErr := ws.processIncomingMessages(conn, messageHandler, errorHandler, doneCh)
+		if processingErr != nil {
+			ws.logger.Debug("Websocket error - will continue to reconnection logic", "error", processingErr)
+		}
+
+		select {
+		case <-stopCh:
+			return
+		default:
+			// back to top of reconnection loop
+		}
+	}
+}
+
+func (ws *WebsocketStreamClient) connect() (*websocket.Conn, error) {
 	Dialer := websocket.Dialer{
 		Proxy:             http.ProxyFromEnvironment,
 		HandshakeTimeout:  ws.config.handshakeTimeout,
 		EnableCompression: ws.config.enableCompression,
 	}
+
 	headers := http.Header{}
 	headers.Add("User-Agent", fmt.Sprintf("%s/%s", Name, Version))
+
 	ws.logger.Debug("Connecting to websocket endpoint", "endpoint", ws.config.endpoint)
-	c, _, err := Dialer.Dial(ws.config.endpoint, headers)
+	conn, _, err := Dialer.Dial(ws.config.endpoint, headers)
 	if err != nil {
 		ws.logger.Error("Websocket connection failed", "error", err)
-		return nil, nil, err
+		return nil, err
 	}
-	c.SetReadLimit(655350)
-	doneCh = make(chan struct{})
-	stopCh = make(chan struct{})
 
-	go func() {
-		defer close(doneCh)
-		defer func(c *websocket.Conn) {
-			err := c.Close()
-			if err != nil {
-				ws.logger.Error("Websocket connection close failed", "error", err)
-			}
-		}(c)
+	conn.SetReadLimit(ReadLimitBytes)
 
-		if ws.config.keepConnectionAlive {
-			ws.keepAlive(c)
-		}
+	if ws.config.keepConnectionAlive {
+		ws.keepAlive(conn)
+	}
 
-		// Start message reading goroutine
-		messageDone := make(chan struct{})
-		go func() {
-			defer close(messageDone)
-			for {
-				_, message, err := c.ReadMessage()
-				if err != nil {
-					// Only treat unexpected closures as errors
-					if websocket.IsUnexpectedCloseError(err,
-						websocket.CloseGoingAway,
-						websocket.CloseAbnormalClosure,
-						websocket.CloseNormalClosure, // Add this to ignore normal closures
-					) {
-						errorHandler(err)
-					}
-
-					// normal close is not an actual error
-					return
-				}
-				messageHandler(message)
-			}
-		}()
-
-		// Wait for stop signal from caller
-		<-stopCh
-		ws.logger.Debug("Received stop signal closing websocket connection")
-
-		// Clean shutdown
-		err = c.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(time.Second))
-		if err != nil {
-			ws.logger.Error("Failed to close websocket connection", "error", err)
-		}
-		<-messageDone
-	}()
-
-	return doneCh, stopCh, nil
+	return conn, nil
 }
 
 func (ws *WebsocketStreamClient) keepAlive(c *websocket.Conn) {
@@ -128,4 +155,49 @@ func (ws *WebsocketStreamClient) keepAlive(c *websocket.Conn) {
 		}
 		return err
 	})
+}
+
+func (ws *WebsocketStreamClient) processIncomingMessages(conn *websocket.Conn, messageHandler MessageHandler, errorHandler ErrorHandler, stopCh chan struct{}) error {
+	// create a go routine to process incoming messages
+	defer conn.Close()
+	messageDone := make(chan struct{})
+
+	go func() {
+		defer close(messageDone)
+		for {
+			_, message, err := conn.ReadMessage()
+			if err != nil {
+				// Only treat unexpected closures as errors
+				if websocket.IsUnexpectedCloseError(err,
+					websocket.CloseGoingAway,
+					websocket.CloseAbnormalClosure,
+					websocket.CloseNormalClosure, // Add this to ignore normal closures
+				) {
+					errorHandler(err)
+				}
+				return
+			}
+			messageHandler(message)
+		}
+	}()
+
+	// creates a select statement that checks if we are stopped and closes message processing routine
+	select {
+	case <-stopCh:
+		ws.logger.Debug("Received stop signal closing websocket connection")
+
+		// Clean shutdown
+		err := conn.WriteControl(
+			websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
+			time.Now().Add(time.Second))
+		if err != nil {
+			ws.logger.Error("Failed to close websocket connection", "error", err)
+		}
+		<-messageDone
+		return nil
+	case <-messageDone:
+		ws.logger.Debug("Message processing completed early")
+		return fmt.Errorf("message processing completed early")
+	}
 }
