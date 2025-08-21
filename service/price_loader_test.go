@@ -1,9 +1,9 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"log/slog"
-	"os"
 	"testing"
 	"time"
 	"trade-stream/client"
@@ -349,10 +349,13 @@ func TestBinancePriceLoader_LoadPricesFromStream(t *testing.T) {
 				logger:             logger,
 			}
 
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
 			// Run in goroutine since LoadPricesFromStream blocks
 			errCh := make(chan error, 1)
 			go func() {
-				err := loader.LoadPricesFromStream(tt.symbols, tt.symbolsPerStream)
+				err := loader.LoadPricesFromStream(ctx, tt.symbols, tt.symbolsPerStream)
 				errCh <- err
 			}()
 
@@ -364,13 +367,8 @@ func TestBinancePriceLoader_LoadPricesFromStream(t *testing.T) {
 				t.Errorf("Expected %d streams, got %d", tt.expectedStreams, len(mockFactory.streams))
 			}
 
-			// Send interrupt signal to trigger graceful shutdown
-			if process, err := os.FindProcess(os.Getpid()); err == nil {
-				err := process.Signal(os.Interrupt)
-				if err != nil {
-					t.Errorf("Attempted to send signal interrupt but failed: %v", err)
-				}
-			}
+			// call cancel to initiate shutdown
+			cancel()
 
 			// Wait for the function to complete
 			select {

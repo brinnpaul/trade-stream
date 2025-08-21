@@ -1,8 +1,13 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"os"
+	"os/signal"
+	"sync"
+	"syscall"
+	"time"
 	"trade-stream/client"
 	configure "trade-stream/config"
 	"trade-stream/data"
@@ -47,23 +52,73 @@ func main() {
 	}
 
 	mux := SetupRoutes(priceManager, logger)
-	server := NewServer(
-		"8080",
-		mux,
-		logger)
+	server := NewServer("8080", mux, logger)
 
-	streamCh := make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	streamDone := make(chan struct{})
 	go func() {
-		defer close(streamCh)
-		err := priceLoader.LoadPricesFromStream(symbols, config.Binance.SymbolsPerStream)
+		defer close(streamDone)
+		err := priceLoader.LoadPricesFromStream(ctx, symbols, config.Binance.SymbolsPerStream)
 		if err != nil {
 			logger.Error("Failed to load prices from stream", "error", err)
-			return
 		}
 	}()
 
-	if err := server.Start(); err != nil {
-		logger.Error("Server error", "error", err)
+	serverDone := make(chan struct{})
+	go func() {
+		defer close(serverDone)
+		if err := server.Start(); err != nil {
+			logger.Error("Server error", "error", err)
+		}
+	}()
+
+	shutdown := make(chan os.Signal, 1)
+	signal.Notify(shutdown, os.Interrupt, syscall.SIGTERM)
+
+	select {
+	case sig := <-shutdown:
+		logger.Info("Received shutdown signal", "signal", sig)
 	}
-	<-streamCh
+
+	cancel()
+
+	if err := server.Stop(); err != nil {
+		logger.Error("Failed to stop server gracefully", "error", err)
+	}
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+
+	wg := sync.WaitGroup{}
+
+	// Wait for streams to finish
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		select {
+		case <-streamDone:
+			logger.Info("WebSocket streams stopped")
+		case <-shutdownCtx.Done():
+			logger.Warn("WebSocket streams shutdown timeout")
+		}
+	}()
+
+	// Wait for server to finish
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		select {
+		case <-serverDone:
+			logger.Info("HTTP server stopped")
+		case <-shutdownCtx.Done():
+			logger.Warn("HTTP server shutdown timeout")
+		}
+	}()
+
+	// Wait for all components to finish
+	wg.Wait()
+
+	logger.Info("Graceful shutdown completed")
 }

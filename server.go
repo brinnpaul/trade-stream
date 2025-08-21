@@ -2,12 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 )
 
@@ -36,40 +34,10 @@ func NewServer(port string, mux *http.ServeMux, logger *slog.Logger) *Server {
 
 // Start starts the HTTP server
 func (s *Server) Start() error {
-	// Create a channel to listen for errors coming from the listener
-	serverErrors := make(chan error, 1)
-
-	// Start the server in a goroutine
-	go func() {
-		s.logger.Info("Starting HTTP server", "port", s.server.Addr)
-		serverErrors <- s.server.ListenAndServe()
-	}()
-
-	// Create a channel to listen for an interrupt or terminate signal from the OS
-	shutdown := make(chan os.Signal, 1)
-	signal.Notify(shutdown, os.Interrupt, syscall.SIGTERM)
-
-	// Blocking select waiting for either a server error or a shutdown signal
-	select {
-	case err := <-serverErrors:
-		return fmt.Errorf("error starting server: %w", err)
-
-	case sig := <-shutdown:
-		s.logger.Info("Shutting down server", "signal", sig)
-
-		// Give outstanding requests a deadline for completion
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-
-		// Gracefully shutdown the server
-		if err := s.server.Shutdown(ctx); err != nil {
-			s.logger.Error("Could not stop server gracefully", "error", err)
-			if err := s.server.Close(); err != nil {
-				return fmt.Errorf("could not force close server: %w", err)
-			}
-		}
+	s.logger.Info("Starting HTTP server", "port", s.server.Addr)
+	if err := s.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return fmt.Errorf("server error: %w", err)
 	}
-
 	return nil
 }
 

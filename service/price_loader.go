@@ -1,13 +1,11 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
-	"os"
-	"os/signal"
 	"slices"
 	"strings"
-	"syscall"
 	"time"
 	"trade-stream/client"
 	"trade-stream/config"
@@ -26,7 +24,7 @@ type BinancePriceLoader struct {
 type PriceLoader interface {
 	LoadPrices(symbols []string) error
 	LoadAllPrices() ([]string, error)
-	LoadPricesFromStream(symbols []string, symbolsPerStream int) error
+	LoadPricesFromStream(ctx context.Context, symbols []string, symbolsPerStream int) error
 }
 
 func NewBinancePriceLoader(
@@ -114,8 +112,8 @@ func createSymbolsSet(symbols []string) map[string]bool {
 	return result
 }
 
-func (pl *BinancePriceLoader) LoadPricesFromStream(symbols []string, symbolsPerStream int) error {
-	pl.logger.Info("LoadPricesFromStream called", "symbols_count", len(symbols), "symbols", symbols, "symbols_per_stream", symbolsPerStream)
+func (pl *BinancePriceLoader) LoadPricesFromStream(ctx context.Context, symbols []string, symbolsPerStream int) error {
+	pl.logger.Debug("LoadPricesFromStream called", "symbols_count", len(symbols), "symbols", symbols, "symbols_per_stream", symbolsPerStream)
 
 	// Create channels for each stream
 	var allDoneChs []chan struct{}
@@ -126,13 +124,13 @@ func (pl *BinancePriceLoader) LoadPricesFromStream(symbols []string, symbolsPerS
 		i += 1
 		streamID := fmt.Sprintf("stream-%d", i)
 
-		pl.logger.Info("Processing chunk", "chunk_number", i, "chunk_symbols", chunk, "chunk_size", len(chunk))
+		pl.logger.Debug("Processing chunk", "chunk_number", i, "chunk_symbols", chunk, "chunk_size", len(chunk))
 
 		errHandler := func(err error) {
 			pl.logger.Error("Stream error", "stream_id", streamID, "error", err)
 		}
 
-		pl.logger.Info("Creating stream", "stream_id", streamID, "symbols", chunk)
+		pl.logger.Debug("Creating stream", "stream_id", streamID, "symbols", chunk)
 		doneCh, stopCh, err := pl.tradeStreamFactory.GetNewStream(
 			chunk,
 			pl.TradeEventHandler,
@@ -154,15 +152,9 @@ func (pl *BinancePriceLoader) LoadPricesFromStream(symbols []string, symbolsPerS
 		pl.logger.Info("Stream started", "stream_id", streamID, "symbols", chunk)
 	}
 
-	//aggregatedDone := pl.aggregateChannels(allDoneChs)
-	//aggregatedStop := make(chan struct{})
-
-	// Set up signal handling for graceful shutdown
-	interrupt := make(chan os.Signal, 1)
-	signal.Notify(interrupt, os.Interrupt, syscall.SIGTERM)
-
-	// Wait for interrupt signal
-	<-interrupt
+	// block until parent context done
+	<-ctx.Done()
+	pl.logger.Info("Shutdown signal received, stopping all streams...")
 
 	// Gracefully shutdown all streams
 	for _, stopCh := range allStopChs {
