@@ -16,13 +16,14 @@ func SetupRoutes(priceManager data.PriceManager, logger *slog.Logger) *http.Serv
 	tickerViewController := controllers.NewPriceWsViewController()
 
 	// Http Ticker price routes
-	mux.HandleFunc("/api/prices", tickerController.GetLiveTickerPrices)
+	mux.HandleFunc("/prices", tickerController.GetLiveTickerPrices)
+	mux.HandleFunc("/price", tickerController.GetLiveTickerPricesForSymbols)
 
 	// WebSocket Ticker price routes
 	mux.HandleFunc("/ws/prices", tickerController.WebSocketPrices)
 
 	// Serve Ticker View Page
-	mux.HandleFunc("/prices", tickerViewController.ServiceTickerPage)
+	mux.HandleFunc("/live-prices", tickerViewController.ServiceTickerPage)
 
 	// Health check endpoint
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {

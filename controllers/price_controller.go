@@ -59,57 +59,78 @@ func (tc *PriceController) GetLiveTickerPrices(w http.ResponseWriter, r *http.Re
 	// Set content type to JSON
 	w.Header().Set("Content-Type", "application/json")
 
-	shouldFilterBySymbols := r.URL.Query().Has("symbols")
-	if shouldFilterBySymbols {
-		symbolsParam := r.URL.Query().Get("symbols")
-		if symbolsParam == "" {
-			http.Error(w, "Missing 'symbols' query parameter", http.StatusBadRequest)
-			return
-		}
+	// Return the ticker prices as JSON
+	if err := json.NewEncoder(w).Encode(GetPriceResponse(prices.GetRawData())); err != nil {
+		tc.logger.Error("Failed to encode price Data", "error", err)
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		return
+	}
+}
 
-		// Parse comma-separated symbols
-		symbols := strings.Split(symbolsParam, ",")
-		if len(symbols) == 0 {
-			http.Error(w, "Invalid symbols parameter", http.StatusBadRequest)
-			return
-		}
+// GetLiveTickerPricesForSymbols handles GET request for all live ticker prices
+func (tc *PriceController) GetLiveTickerPricesForSymbols(w http.ResponseWriter, r *http.Request) {
+	// Set CORS headers for web clients
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 
-		// Clean up symbols (trim whitespace and convert to uppercase)
-		var cleanSymbols []string
-		for _, symbol := range symbols {
-			cleanSymbol := strings.TrimSpace(strings.ToUpper(symbol))
-			if cleanSymbol != "" {
-				cleanSymbols = append(cleanSymbols, cleanSymbol)
-			}
-		}
+	// Handle preflight OPTIONS request
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 
-		if len(cleanSymbols) == 0 {
-			http.Error(w, "No valid symbols provided", http.StatusBadRequest)
-			return
-		}
+	// Only allow GET requests
+	if r.Method != "GET" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 
-		// Filter prices for requested symbols
-		filteredPrices := make(map[string]models.PriceTicker)
-		for _, symbol := range cleanSymbols {
-			if ticker := prices.GetPriceTicker(symbol); ticker.Symbol != "" {
-				filteredPrices[symbol] = ticker
-			}
-		}
+	prices := tc.priceManager.GetPrices()
 
-		// Return the ticker prices as JSON
-		if err := json.NewEncoder(w).Encode(GetPriceResponse(filteredPrices)); err != nil {
-			tc.logger.Error("Failed to encode price Data", "error", err)
-			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
-			return
-		}
+	// Set content type to JSON
+	w.Header().Set("Content-Type", "application/json")
 
-	} else {
-		// Return the ticker prices as JSON
-		if err := json.NewEncoder(w).Encode(GetPriceResponse(prices.GetRawData())); err != nil {
-			tc.logger.Error("Failed to encode price Data", "error", err)
-			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
-			return
+	symbolsParam := r.URL.Query().Get("symbols")
+	if symbolsParam == "" {
+		http.Error(w, "Missing 'symbols' query parameter", http.StatusBadRequest)
+		return
+	}
+
+	// Parse comma-separated symbols
+	symbols := strings.Split(symbolsParam, ",")
+	if len(symbols) == 0 {
+		http.Error(w, "Invalid symbols parameter", http.StatusBadRequest)
+		return
+	}
+
+	// Clean up symbols (trim whitespace and convert to uppercase)
+	var cleanSymbols []string
+	for _, symbol := range symbols {
+		cleanSymbol := strings.TrimSpace(strings.ToUpper(symbol))
+		if cleanSymbol != "" {
+			cleanSymbols = append(cleanSymbols, cleanSymbol)
 		}
+	}
+
+	if len(cleanSymbols) == 0 {
+		http.Error(w, "No valid symbols provided", http.StatusBadRequest)
+		return
+	}
+
+	// Filter prices for requested symbols
+	filteredPrices := make(map[string]models.PriceTicker)
+	for _, symbol := range cleanSymbols {
+		if ticker := prices.GetPriceTicker(symbol); ticker.Symbol != "" {
+			filteredPrices[symbol] = ticker
+		}
+	}
+
+	// Return the ticker prices as JSON
+	if err := json.NewEncoder(w).Encode(GetPriceResponse(filteredPrices)); err != nil {
+		tc.logger.Error("Failed to encode price Data", "error", err)
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		return
 	}
 }
 

@@ -63,7 +63,7 @@ func main() {
 	}()
 
 	if err := server.Start(); err != nil {
-		logger.Error("Server error:", err)
+		logger.Error("Server error", "error", err)
 	}
 	<-streamCh
 }

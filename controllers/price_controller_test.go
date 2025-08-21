@@ -13,7 +13,7 @@ func TestPriceController_GetLiveTickerPrices(t *testing.T) {
 	controller := NewPriceController(data.NewInMemoryPriceManager(slog.Default()), slog.Default())
 
 	// Create a test request
-	req, err := http.NewRequest("GET", "/api/prices", nil)
+	req, err := http.NewRequest("GET", "/prices", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +40,7 @@ func TestPriceController_GetLiveTickerPrices_WithSymbolsParam(t *testing.T) {
 	controller := NewPriceController(data.NewInMemoryPriceManager(slog.Default()), slog.Default())
 
 	// Create a test request with symbol parameter
-	req, err := http.NewRequest("GET", "/api/prices?symbol=BTCUSDT", nil)
+	req, err := http.NewRequest("GET", "/price?symbol=BTCUSDT", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,39 +69,39 @@ func TestPriceController_GetLiveTickerPricesForSymbols_MultipleRequests(t *testi
 	controller := NewPriceController(mockPriceManager, slog.Default())
 
 	// Test case 1: Valid symbols
-	req, err := http.NewRequest("GET", "/api/prices?symbols=BTCUSDT,ETHUSDT", nil)
+	req, err := http.NewRequest("GET", "/price?symbols=BTCUSDT,ETHUSDT", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	rr := httptest.NewRecorder()
-	controller.GetLiveTickerPrices(rr, req)
+	controller.GetLiveTickerPricesForSymbols(rr, req)
 
 	if status := rr.Code; status != http.StatusOK {
 		t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusOK)
 	}
 
 	// Test case 2: Empty symbols parameter
-	req2, err := http.NewRequest("GET", "/api/prices/symbols?symbols=", nil)
+	req2, err := http.NewRequest("GET", "/price?symbols=", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	rr2 := httptest.NewRecorder()
-	controller.GetLiveTickerPrices(rr2, req2)
+	controller.GetLiveTickerPricesForSymbols(rr2, req2)
 
 	if status := rr2.Code; status != http.StatusBadRequest {
 		t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusBadRequest)
 	}
 
 	// Test case 3: Invalid symbols (only whitespace)
-	req3, err := http.NewRequest("GET", "/api/prices/symbols?symbols=  ,  ", nil)
+	req3, err := http.NewRequest("GET", "price?symbols=  ,  ", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	rr3 := httptest.NewRecorder()
-	controller.GetLiveTickerPrices(rr3, req3)
+	controller.GetLiveTickerPricesForSymbols(rr3, req3)
 
 	if status := rr3.Code; status != http.StatusBadRequest {
 		t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusBadRequest)

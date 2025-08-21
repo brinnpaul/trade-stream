@@ -11,7 +11,7 @@ func NewPriceWsViewController() *PriceWsViewController {
 
 // ServiceTickerPage serves the HTML page for real-time price display
 func (tc *PriceWsViewController) ServiceTickerPage(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/prices" {
+	if r.URL.Path != "/live-prices" {
 		http.NotFound(w, r)
 		return
 	}
