@@ -1,0 +1,11 @@
+
+
+binance:
+  api_url: 'https://api.binance.us'
+  websocket_url: 'wss://stream.binance.us:9443'
+  symbols:
+    - 'BTCUSDT'
+    - 'ETHUSDT'
+    - 'BTCUSD'
+    - 'ETHUSD'
+  symbols_per_stream: 100
