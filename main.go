@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"log"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -15,17 +16,17 @@ import (
 )
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelDebug,
-	}))
-	slog.SetDefault(logger)
-
 	configPath := "config/config.yaml"
 	config, configErr := configure.LoadConfig(configPath)
 	if configErr != nil {
-		logger.Error("Failed to load config file", "error", configErr)
+		log.Fatalf("Failed to load config file: %v", configErr)
 		return
 	}
+
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: config.GetLogLevel(),
+	}))
+	slog.SetDefault(logger)
 
 	priceManager := data.NewInMemoryPriceManager(logger)
 	priceManager.Start()

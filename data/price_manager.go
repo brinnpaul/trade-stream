@@ -52,7 +52,7 @@ func (pm *InMemoryPriceManager) Subscribe() chan models.Prices {
 }
 
 func (pm *InMemoryPriceManager) Unsubscribe(ch chan models.Prices) {
-	pm.logger.Info("Removing Subscriber")
+	pm.logger.Debug("Removing Subscriber")
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 

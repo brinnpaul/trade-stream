@@ -2,12 +2,15 @@ package config
 
 import (
 	"fmt"
-	"gopkg.in/yaml.v3"
+	"log/slog"
 	"os"
+
+	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
 	Binance BinanceConfig `yaml:"binance"`
+	Logging LoggingConfig `yaml:"logging"`
 }
 
 type BinanceConfig struct {
@@ -15,6 +18,10 @@ type BinanceConfig struct {
 	WebsocketUrl     string   `yaml:"websocket_url"`
 	Symbols          []string `yaml:"symbols"`
 	SymbolsPerStream int      `yaml:"symbols_per_stream"`
+}
+
+type LoggingConfig struct {
+	Level string `yaml:"level"`
 }
 
 func LoadConfig(configPath string) (*Config, error) {
@@ -39,4 +46,19 @@ func LoadConfig(configPath string) (*Config, error) {
 
 func (c *Config) ShouldLoadAllSymbols() bool {
 	return c.Binance.Symbols == nil || len(c.Binance.Symbols) == 0
+}
+
+func (c *Config) GetLogLevel() slog.Level {
+	switch c.Logging.Level {
+	case "debug":
+		return slog.LevelDebug
+	case "info":
+		return slog.LevelInfo
+	case "warn":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
 }

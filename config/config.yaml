@@ -1,5 +1,5 @@
-
-
+logging:
+  level: 'info'
 binance:
   api_url: 'https://api.binance.us'
   websocket_url: 'wss://stream.binance.us:9443'
