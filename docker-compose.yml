@@ -7,7 +7,6 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      # Mount config file for easy updates without rebuilding
       - ./config/config.yaml:/app/config/config.yaml:ro
     restart: unless-stopped
     healthcheck:
@@ -18,6 +17,36 @@ services:
       start_period: 40s
     networks:
       - trade-stream-network
+  
+  unit-test:
+    build: .
+    command: go test ./... -v -skip 'TestPricesApi'
+    volumes:
+      - .:/app
+
+  api-test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: trade-stream-api-test
+    depends_on:
+      trade-stream:
+        condition: service_healthy
+    volumes:
+      - .:/app
+    working_dir: /app
+    command: >
+      sh -c "
+        echo 'Waiting for service to be ready...' &&
+        sleep 5 &&
+        echo 'Running API tests...' &&
+        go test ./test/api_test.go -v
+      "
+    environment:
+      - TEST_SERVICE_URL=http://trade-stream:8080
+    networks:
+      - trade-stream-network
+
 
 networks:
   trade-stream-network:
