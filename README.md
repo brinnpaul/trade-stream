@@ -44,7 +44,7 @@ make run
 
 Stop the service
 ```bash
-make run
+make stop
 ```
 
 Run unit tests
@@ -105,12 +105,10 @@ trade stream. Any priceUpdates received are sent to the PriceManager via channel
   - initially populates data from rest api and assumes events from websocket stream will be after the data represented in the api
 - price loader sets up long running go-routines that exit only on error or signal interrupt
   - there is no error handling / connection management around restarting this process if the websocket client connection throws an error
-  - ideally this should be addressed in the websocket connection
 
 ### Websocket Connection -> Binance
  - Creates a new stream per limit set in config
    - binance has a limit of 1024 streams per a given websocket connection - have to create multiple connections if you go over this limit
- - no handling of websocket connection failure (...yet)
 
 ### Overall
  - Not necessarily robust -> areas of improvement
